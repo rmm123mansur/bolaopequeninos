@@ -830,5 +830,119 @@ if(S.currentUser){
   document.getElementById('part-ok').style.display='block';
 }
 </script>
+
+  <!-- Firebase -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, getDocs } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyDxt6dc95pMUWedtTxNLwseZA3Lyju96z4",
+      authDomain: "bolao-copa-6d128.firebaseapp.com",
+      projectId: "bolao-copa-6d128",
+      storageBucket: "bolao-copa-6d128.firebasestorage.app",
+      messagingSenderId: "814172357478",
+      appId: "1:814172357478:web:6a397c89ba67657685fea7",
+      measurementId: "G-JCDRK9EGLM"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    // ── FIREBASE SYNC ──────────────────────────────────────
+    window.fbSave = async function() {
+      try {
+        // Save participantes and jogos (shared state)
+        await setDoc(doc(db, "bolao", "shared"), {
+          participantes: S.participantes,
+          jogos: S.jogos,
+        });
+        // Save this user palpites
+        if (S.currentUser) {
+          await setDoc(doc(db, "palpites", String(S.currentUser)), {
+            uid: S.currentUser,
+            data: S.palpites[S.currentUser] || {}
+          });
+        }
+      } catch(e) { console.error("Firebase save error:", e); }
+    };
+
+    window.fbLoad = async function() {
+      try {
+        // Load shared state
+        const sharedSnap = await getDoc(doc(db, "bolao", "shared"));
+        if (sharedSnap.exists()) {
+          const d = sharedSnap.data();
+          if (d.participantes) S.participantes = d.participantes;
+          if (d.jogos) S.jogos = d.jogos;
+        }
+        // Load all palpites
+        const palSnap = await getDocs(collection(db, "palpites"));
+        palSnap.forEach(docSnap => {
+          const d = docSnap.data();
+          if (d.uid && d.data) S.palpites[d.uid] = d.data;
+        });
+        // Load current user palpites if logged in
+        if (S.currentUser) {
+          const mySnap = await getDoc(doc(db, "palpites", String(S.currentUser)));
+          if (mySnap.exists()) S.palpites[S.currentUser] = mySnap.data().data || {};
+        }
+      } catch(e) { console.error("Firebase load error:", e); }
+    };
+
+    // Real-time listener for shared state (ranking, jogos)
+    onSnapshot(doc(db, "bolao", "shared"), (snap) => {
+      if (snap.exists()) {
+        const d = snap.data();
+        if (d.participantes) S.participantes = d.participantes;
+        if (d.jogos) {
+          // Preserve local palpites input state
+          S.jogos = d.jogos;
+        }
+        // Refresh current visible page
+        const activePage = document.querySelector('.page.active')?.id;
+        if (activePage === 'ranking') renderRanking();
+        if (activePage === 'home') renderStats();
+        if (activePage === 'palpites') renderPalpites();
+      }
+    });
+
+    // Real-time listener for all palpites (ranking updates)
+    onSnapshot(collection(db, "palpites"), (snap) => {
+      snap.forEach(docSnap => {
+        const d = docSnap.data();
+        if (d.uid && d.data) S.palpites[d.uid] = d.data;
+      });
+      const activePage = document.querySelector('.page.active')?.id;
+      if (activePage === 'ranking') renderRanking();
+    });
+
+    // Override save and load functions to use Firebase
+    const _origSave = window.save;
+    window.save = async function() {
+      // Keep localStorage as backup
+      localStorage.setItem('bolao2026', JSON.stringify({
+        participantes: S.participantes,
+        palpites: S.palpites,
+        jogos: S.jogos,
+        currentUser: S.currentUser
+      }));
+      // Also save to Firebase
+      await window.fbSave();
+    };
+
+    // Init: load from Firebase, fallback to localStorage
+    (async () => {
+      await window.fbLoad();
+      renderStats();
+      refreshHeader();
+      if (S.currentUser) {
+        document.getElementById('part-form').style.display = 'none';
+        document.getElementById('part-ok').style.display = 'block';
+      }
+      console.log("Firebase loaded ✓");
+    })();
+  </script>
+
 </body>
 </html>
